@@ -1,0 +1,574 @@
+// ==UserScript==
+// @name         YouTube Music Bar Controller
+// @namespace    yuji.musicbar
+// @version      4.0
+// @description  Detects music from YouTube title keywords and sends title, channel and playing state to GTK Music Bar
+// @match        https://www.youtube.com/*
+// @grant        GM_xmlhttpRequest
+// @connect      127.0.0.1
+// @run-at       document-start
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    const SERVER = 'http://127.0.0.1:8765';
+
+    let lastTitle = '';
+    let lastChannel = '';
+    let lastUrl = '';
+    let lastPlaying = null;
+    let lastMusic = null;
+
+    const musicKeywords = [
+
+        "official audio",
+        "official music video",
+        "official lyric video",
+        "official lyrics",
+        "official song",
+        "official single",
+        "official soundtrack",
+
+        "lyrics",
+        "lyric video",
+        "lyrical",
+        "lyric",
+
+        "audio",
+        "full audio",
+        "full song",
+        "full track",
+        "full version",
+        "original song",
+        "original soundtrack",
+        "original motion picture soundtrack",
+
+        "song",
+        "single",
+        "track",
+        "title track",
+        "title song",
+        "theme song",
+        "theme music",
+        "opening song",
+        "opening theme",
+        "ending song",
+        "ending theme",
+
+        "remix",
+        "remastered",
+        "remaster",
+        "rework",
+        "extended mix",
+        "extended version",
+        "radio edit",
+        "album version",
+        "original mix",
+
+        "instrumental",
+        "instrumental version",
+        "acoustic",
+        "acoustic version",
+        "unplugged",
+
+        "slowed",
+        "slowed + reverb",
+        "slowed and reverb",
+        "slowed reverb",
+        "sped up",
+        "speed up",
+        "nightcore",
+        "bass boosted",
+        "8d audio",
+        "8d music",
+        "8d song",
+
+        "music video",
+        "music",
+        "audio visualizer",
+        "visualizer",
+        "lyric visualizer",
+        "official visualizer",
+
+        "live performance",
+        "live session",
+        "live version",
+        "live concert",
+        "live acoustic",
+        "unplugged live",
+
+        "cover",
+        "cover song",
+        "cover version",
+        "acoustic cover",
+        "female cover",
+        "male cover",
+
+        "mashup",
+        "mash up",
+        "medley",
+        "megaremix",
+        "mega mix",
+        "mix",
+        "music mix",
+        "song mix",
+        "dj mix",
+        "dj remix",
+        "dance mix",
+        "club mix",
+        "electronic mix",
+
+        "lofi",
+        "lo-fi",
+        "phonk",
+        "beats",
+        "beat",
+        "rap",
+        "rap song",
+        "hip hop",
+        "hip-hop",
+        "indie",
+        "indie song",
+        "pop song",
+        "rock song",
+
+        "bollywood",
+        "bollywood song",
+        "bollywood music",
+        "hindi song",
+        "hindi music",
+        "marathi song",
+        "marathi music",
+        "tamil song",
+        "tamil music",
+        "telugu song",
+        "telugu music",
+        "punjabi song",
+        "punjabi music",
+
+        "film song",
+        "film music",
+        "movie song",
+        "movie music",
+        "soundtrack",
+        "ost",
+        "ost.",
+        "ep",
+        "album",
+        "single release",
+
+        "feat.",
+        " ft.",
+        "featuring",
+        "prod.",
+        "produced by",
+
+        "karaoke",
+        "sing along",
+        "singalong",
+
+        "8d",
+        "bass boost",
+        "reverb",
+        "echo",
+
+        "sped",
+        "slowed version",
+        "speed version",
+
+        "remake",
+        "recreated",
+        "recreation",
+
+        "fanmade",
+        "fan made",
+        "fan edit",
+        "edit audio",
+        "music edit",
+
+        "status video",
+        "status song",
+        "whatsapp status",
+        "instagram song",
+
+        "jukebox",
+        "non stop",
+        "nonstop",
+        "continuous mix",
+        "continuous music",
+
+        "mashup",
+        "mashup song",
+        "song mashup",
+        "songs mashup"
+    ];
+
+
+    function request(method, path, data = null) {
+        GM_xmlhttpRequest({
+            method: method,
+            url: SERVER + path,
+
+            headers: {
+                'Content-Type': 'application/json'
+            },
+
+            data: data
+                ? JSON.stringify(data)
+                : null,
+
+            onload: function (response) {
+                if (
+                    response.status >= 200 &&
+                    response.status < 300
+                ) {
+                    console.log(
+                        '[Music Bar]',
+                        method,
+                        path,
+                        response.responseText
+                    );
+                }
+            },
+
+            onerror: function () {
+                console.error(
+                    '[Music Bar] Server unavailable'
+                );
+            }
+        });
+    }
+
+
+    function getVideo() {
+        return document.querySelector('video');
+    }
+
+
+    function getTitle() {
+        const selectors = [
+            'h1.ytd-watch-metadata yt-formatted-string',
+            'h1.title yt-formatted-string',
+            'ytd-watch-metadata h1',
+            '.ytp-title-link'
+        ];
+
+        for (const selector of selectors) {
+            const element =
+                document.querySelector(selector);
+
+            if (element) {
+                const text =
+                    element.textContent.trim();
+
+                if (text)
+                    return text;
+            }
+        }
+
+        return document.title
+            .replace(
+                /\s*-\s*YouTube\s*$/i,
+                ''
+            )
+            .trim();
+    }
+
+
+    function getChannel() {
+        const selectors = [
+            '#owner ytd-channel-name a',
+            '#owner ytd-channel-name yt-formatted-string',
+            '#owner #channel-name',
+            'ytd-watch-metadata ytd-channel-name a',
+            'ytd-watch-metadata ytd-channel-name yt-formatted-string',
+            'ytd-video-owner-renderer a',
+            'ytd-video-owner-renderer yt-formatted-string'
+        ];
+
+        for (const selector of selectors) {
+
+            const elements =
+                document.querySelectorAll(selector);
+
+            for (const element of elements) {
+
+                const text =
+                    element.textContent.trim();
+
+                if (text)
+                    return text;
+            }
+        }
+
+        return '';
+    }
+
+
+    function getUrl() {
+        return window.location.href;
+    }
+
+
+    function isMusicTitle(title) {
+
+        const lower =
+            title.toLowerCase();
+
+        for (
+            const keyword of musicKeywords
+        ) {
+
+            if (
+                lower.includes(keyword)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
+    function sendSong(video) {
+
+        const title = getTitle();
+        const channel = getChannel();
+        const url = getUrl();
+
+        if (!title)
+            return;
+
+        const music =
+            isMusicTitle(title);
+
+        if (
+            title !== lastTitle ||
+            channel !== lastChannel ||
+            url !== lastUrl ||
+            music !== lastMusic
+        ) {
+
+            lastTitle = title;
+            lastChannel = channel;
+            lastUrl = url;
+            lastMusic = music;
+
+            console.log(
+                '[Music Bar] Title:',
+                title
+            );
+
+            console.log(
+                '[Music Bar] Channel:',
+                channel || '(not found)'
+            );
+
+            console.log(
+                '[Music Bar] Music:',
+                music
+            );
+
+            request(
+                'POST',
+                '/song',
+                {
+                    title: title,
+                    channel: channel,
+                    url: url,
+                    music: music
+                }
+            );
+        }
+    }
+
+
+    function sendPlayingState(video) {
+
+        const playing =
+            !video.paused &&
+            !video.ended;
+
+        if (
+            playing === lastPlaying
+        )
+            return;
+
+        lastPlaying = playing;
+
+        console.log(
+            '[Music Bar] Playing:',
+            playing
+        );
+
+        request(
+            'POST',
+            '/playing',
+            {
+                playing: playing,
+                active: playing
+            }
+        );
+    }
+
+
+    function attachVideo(video) {
+
+        if (
+            video.__musicBarAttached
+        )
+            return;
+
+        video.__musicBarAttached = true;
+
+        console.log(
+            '[Music Bar] Video connected'
+        );
+
+
+        video.addEventListener(
+            'play',
+            function () {
+
+                sendSong(video);
+                sendPlayingState(video);
+            }
+        );
+
+
+        video.addEventListener(
+            'pause',
+            function () {
+
+                sendPlayingState(video);
+            }
+        );
+
+
+        video.addEventListener(
+            'ended',
+            function () {
+
+                sendPlayingState(video);
+            }
+        );
+
+
+        video.addEventListener(
+            'loadedmetadata',
+            function () {
+
+                setTimeout(
+                    function () {
+
+                        sendSong(video);
+                        sendPlayingState(video);
+
+                    },
+                    500
+                );
+            }
+        );
+
+
+        sendSong(video);
+        sendPlayingState(video);
+    }
+
+
+    function checkVideo() {
+
+        const video =
+            getVideo();
+
+        if (!video)
+            return;
+
+        attachVideo(video);
+
+        sendSong(video);
+        sendPlayingState(video);
+    }
+
+
+    let lastPageUrl =
+        location.href;
+
+
+    function watchNavigation() {
+
+        if (
+            location.href === lastPageUrl
+        )
+            return;
+
+        lastPageUrl =
+            location.href;
+
+        console.log(
+            '[Music Bar] YouTube page changed'
+        );
+
+        lastTitle = '';
+        lastChannel = '';
+        lastUrl = '';
+        lastPlaying = null;
+        lastMusic = null;
+
+        setTimeout(
+            checkVideo,
+            500
+        );
+
+        setTimeout(
+            checkVideo,
+            1500
+        );
+
+        setTimeout(
+            checkVideo,
+            3000
+        );
+    }
+
+
+    setInterval(
+        checkVideo,
+        500
+    );
+
+
+    setInterval(
+        watchNavigation,
+        250
+    );
+
+
+    setInterval(
+        function () {
+
+            const video =
+                getVideo();
+
+            if (!video)
+                return;
+
+            const channel =
+                getChannel();
+
+            if (channel) {
+                sendSong(video);
+            }
+
+        },
+        1000
+    );
+
+
+    setTimeout(
+        checkVideo,
+        1000
+    );
+
+})();
